@@ -1,0 +1,324 @@
+---
+title: "DengAI Predicting Disease Spread"
+author: Radhika Sood, Rupanjali Chattopadhyay, Rekha Raj, Achal Khullar, Ajinkya Dalvi, Aman Rastogi, Prathiba Swamykannu, Umesh Singh
+date: "April 7, 2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# {.tabset .tabset-fade .tabset-pills}
+## Summary 
+<font size ="4">
+![dengue: mosquito-borne diseae](D:/STUDY/MSIS/DATA MINING BI/SL Project/dengue.jpg)
+Dengue is  a mosquito-borne disease. It occurs mainly in the tropical and subtropical parts of the world. Since, it is transmitted by mosquitoes, the transmission of the disease is related to the climatic conditions and environmental variables such as precipitation and temperature. The disease is prevalent in Southeast Asia and Pacific Islands and epidemics of this disease are expected based on differences in climatic condtions. Nearly half a million cases of the dengue fever every year are reported in the Latin America, as reported by DataDriven.org.  
+
+*Data Source* 
+The dataset was collected and publicaly shared by *"DrivenData.org"*.The link to original dataset can be found [here](https://www.drivendata.org/competitions/44/dengai-predicting-disease-spread/data/).The environmental data  has been collected by the U.S. Federal Government agencies - Centers for Disease Control (CDC) and Prevention to the National Oceanic and Atmospheric Administration (NOAA).
+
+*Goal* 
+The goal of this project is to build supervised learning model to predict the number of dengue fever cases each week in the cities of *San Juan, Puerto Rico and Iquitos, Peru* based on the features provided in the test data set, from 2008 (week 18) till 2013 (week 13) for San Juan , and from 2010 (week 26) till 2013 (week 26) for Iquitos.
+The champion model will be used for predicting the total cases per week from the features in the test set.
+
+*Algorithms used* 
+We used several algorithms in supervised learning models including Decision (Regression) Tree, Random Forest and Extreme Gradient Boosting, Partial Least Squares, GLMNET for building the prediction model on a training set and compare their performance. Finally the champion model was chosen for predicting on a future dataset.
+
+## Loading Libraries 
+```{r libraries}
+# install.packages("RCurl")
+# install.packages("e1071")
+# install.packages("caret")
+# install.packages("doSNOW")
+# install.packages("ipred")
+# install.packages("xgboost")
+# install.packages("dplyr")
+# install.packages("tidyr")
+# install.packages("naniar")
+# install.packages("corrplot")
+# install.packages("gbm")
+# install.packages("mda")
+# install.packages("psych")
+# install.packages("kknn")
+# install.packages("pls")
+# install.packages("pamr")
+# install.packages("mda")
+# install.packages("rattle")
+# install.packages("vtreat")
+library(RCurl)
+library(e1071)
+library(caret)
+library(doSNOW)
+library(ipred)
+library(xgboost)
+library(dplyr)
+library(tidyr)
+library(naniar)
+library(corrplot)
+library(psych)
+library(grid)
+library(ggplot2)
+library(kknn)
+library(pls)
+library(pamr)
+library(mda)
+library(rattle)
+library(vtreat)
+library(glmnet)
+```
+
+
+# Data Preparation Steps
+The dataset contains both train and test data. We will split train data and use one part (i.e., the major part of the split) to train the predictive model and use the other smaller part to test the performance of the predictive model/regressor. The new test dataset will be used for validation. 
+
+## Importing Datasets Into the R-Console
+##Importing dengue_features_train and label dataset using "getURL" method from the RCurl package. This dataset contains information about the various features that can affect the incidence of the cases of dengue (mosquito-borne disease) per week.
+
+## Importing the training data features and labels and then merging them by their composite keys (i.e., a combination of 'city', 'year' and 'week of year')
+```{r trainfeatures_labels}
+trfeat <- getURL("https://s3.amazonaws.com/drivendata/data/44/public/dengue_features_train.csv")
+trfeat <-read.csv(text = trfeat)
+trfeat <- trfeat[, -c(4)]
+trlabel <- getURL("https://s3.amazonaws.com/drivendata/data/44/public/dengue_labels_train.csv")
+trlabel <- read.csv(text = trlabel)
+trmerge <- merge(trfeat, trlabel, by=c("city", "year", "weekofyear"))
+names(trmerge)
+dengue_train <- trmerge[,c(-2)]
+names(dengue_train)
+dim(dengue_train)
+```
+
+## Checking and visualizing missing values in the merged training data
+```{r missing}
+# Visualizing missing values for the training data
+vis_miss(dengue_train)
+gg_miss_var(dengue_train) + theme_minimal()
+gg_miss_var(dengue_train, facet = city) + theme_minimal()
+ggplot(dengue_train, aes(x=ndvi_ne, y = total_cases)) + geom_point()
+ggplot(dengue_train, aes(x=ndvi_ne, y = total_cases)) + geom_miss_point()
+```
+Conclusion: Most of the missing values can be classified as 'Missing Not At Random'.
+
+## Imputation of missing values
+```{r}
+pre.process <- preProcess(dengue_train, method = "bagImpute")
+imputed.data <- predict(pre.process, dengue_train) 
+dengue_train$ndvi_ne <- imputed.data[,3]
+dengue_train$ndvi_nw <- imputed.data[,4]
+dengue_train$ndvi_se <- imputed.data[,5]
+dengue_train$ndvi_sw <- imputed.data[,6]
+dengue_train$precipitation_amt_mm <- imputed.data[,7]
+dengue_train$reanalysis_air_temp_k <- imputed.data[, 8]
+dengue_train$reanalysis_avg_temp_k <- imputed.data[,9]
+dengue_train$reanalysis_dew_point_temp_k <- imputed.data[,10]
+dengue_train$reanalysis_max_air_temp_k <- imputed.data[,11]
+dengue_train$reanalysis_min_air_temp_k <- imputed.data[,12]
+dengue_train$reanalysis_precip_amt_kg_per_m2 <- imputed.data[,13]
+dengue_train$reanalysis_relative_humidity_percent <- imputed.data[,14]
+dengue_train$reanalysis_sat_precip_amt_mm <- imputed.data[,15]
+dengue_train$reanalysis_specific_humidity_g_per_kg <- imputed.data[,16]
+dengue_train$reanalysis_tdtr_k <- imputed.data[,17]
+dengue_train$station_avg_temp_c <- imputed.data[,18]
+dengue_train$station_diur_temp_rng_c <- imputed.data[,19]
+dengue_train$station_max_temp_c <- imputed.data[,20]
+dengue_train$station_min_temp_c <- imputed.data[,21]
+dengue_train$station_precip_mm <- imputed.data[,22]
+
+anyNA(dengue_train)
+vis_miss(dengue_train)
+```
+Conclusion: All of the missing values were imputed.
+
+# Randomize the training data
+```{r randomization}
+random_index <- sample(1:nrow(dengue_train), nrow(dengue_train))
+random_train <- dengue_train[random_index, ]
+names(random_train)
+dim(random_train)
+anyNA(random_train)
+```
+
+## Defining the tuning grid
+```{r grid}
+grid <- expand.grid(eta = c(0.05, 0.5),
+                         nrounds = c(70, 90),
+                         max_depth = 1:6,
+                         min_child_weight = c(1.0, 4),
+                         colsample_bytree = c(0.5, 1),
+                         gamma = c(0, 0.1),
+                         subsample = c(0.8, 1))
+```
+
+
+## Defining trainControl for the ML Algorithms
+```{r traincontrol}
+train.control <- trainControl(method = "repeatedcv",
+                              number = 10,
+                              repeats = 5,
+                              search = "grid")
+```
+
+#Applying ML Algorithms For Training the Prediction Model
+
+## K-Nearest Neighbor (knn) Algorithm to Train The Prediction Model
+```{r knn}
+set.seed(45220)
+model_kknn <- caret::train(total_cases ~ .,
+                           data = random_train[,c(2,3:6,12,16,20,23)],
+                           type="prob",
+                           method = "kknn",
+                           tuneLength = 10,
+                           preProcess = NULL,
+                           trControl = train.control)
+model_kknn
+```
+
+## GLMNET Algorithm to Train The Prediction Model: generalized linear model via penalized maximum likelihood; the regulaization path is computed for elasticnet penalty at a grid of values for the regularization parameter lambada
+```{r glmnet}
+set.seed(45220)
+model_glmnet <- caret::train(total_cases ~ .,
+                             data = random_train[,c(2,3:6,12,16,20,23)],
+                             method = "glmnet",
+                             preProcess = NULL,
+                             trControl = train.control)
+model_glmnet
+```
+
+## Random Forest Algorithm to Train The Prediction Model
+```{r rf}
+x <- random_train[,2:22]
+
+metric <- "MAE"
+mtry <- sqrt(ncol(x))
+model_rf <- caret::train(total_cases ~ ., 
+                         data = random_train[,c(2,3:6,12,16,20,23)],
+                         method = "rf",
+                         preProcess = NULL,
+                         metric = metric,
+                         tuneGrid = expand.grid(.mtry = mtry),
+                         trControl = train.control)
+model_rf
+```
+
+## Regression Tree Algorithm to Train The Prediction Model
+```{r rpart}
+set.seed(123)
+model_rpart <- caret::train(total_cases ~ ., data = random_train,
+                               method = "rpart",
+                               preProcess = NULL,
+                               trControl = train.control)
+model_rpart
+fancyRpartPlot(model_rpart$finalModel)
+```
+
+## Partial Least Squares (PLS) to Train The Prediction Model
+```{r pls}
+set.seed(27)
+model_pls <- caret::train(total_cases ~ .,
+                          data = random_train[,c(2,3:6,12,16,20,23)],
+                          method = "pls",
+                          preProcess = NULL,
+                          trControl = train.control)
+model_pls
+```
+
+## Extreme Gradient Boosting
+```{r xgb}
+cl <- makeCluster(3, type = "SOCK")
+registerDoSNOW(cl)
+
+model_xgb <- caret::train(total_cases ~ .,
+                          data = random_train[,c(2,3:6,12,16,20,23)],
+                          method = "xgbTree",
+                          tuneGrid = grid,
+                          trControl = train.control)
+
+
+model_xgb
+```
+
+
+## Comparing Prediction Models
+```{r final}
+models <- list( xgb = model_xgb,
+                rf = model_rf, 
+                glmnet = model_glmnet, 
+                kknn = model_kknn, 
+                pls = model_pls,
+                tree = model_rpart
+)
+resample_results <- resamples(models)
+resample_results
+summary(resample_results)
+```
+Conclusion: The prediction model based on **extreme gradient boosting** algorithm is the champion model.
+
+
+## Prediction of Total Cases in Future Using XGB model
+## Importing the test data features on which the predictive model will be applied to predict total number of cases per week at a future date)
+```{r testfeatures}
+testset <- getURL("https://s3.amazonaws.com/drivendata/data/44/public/dengue_features_test.csv")
+testset <- read.csv(text=testset)
+names(testset)
+dengue_test <- testset[, -c(2, 4)] 
+names(dengue_test)
+# Visualizing missing values for the test data
+vis_miss(dengue_test)
+```
+
+## Imputation of missing values inthe test data
+```{r impute_test}
+names(dengue_test)
+pre.process <- preProcess(dengue_test, method = "bagImpute")
+imputed.data <- predict(pre.process, dengue_test) 
+dengue_test$ndvi_ne <- imputed.data[,3]
+dengue_test$ndvi_nw <- imputed.data[,4]
+dengue_test$ndvi_se <- imputed.data[,5]
+dengue_test$ndvi_sw <- imputed.data[,6]
+dengue_test$precipitation_amt_mm <- imputed.data[,7]
+dengue_test$reanalysis_air_temp_k <- imputed.data[, 8]
+dengue_test$reanalysis_avg_temp_k <- imputed.data[,9]
+dengue_test$reanalysis_dew_point_temp_k <- imputed.data[,10]
+dengue_test$reanalysis_max_air_temp_k <- imputed.data[,11]
+dengue_test$reanalysis_min_air_temp_k <- imputed.data[,12]
+dengue_test$reanalysis_precip_amt_kg_per_m2 <- imputed.data[,13]
+dengue_test$reanalysis_relative_humidity_percent <- imputed.data[,14]
+dengue_test$reanalysis_sat_precip_amt_mm <- imputed.data[,15]
+dengue_test$reanalysis_specific_humidity_g_per_kg <- imputed.data[,16]
+dengue_test$reanalysis_tdtr_k <- imputed.data[,17]
+dengue_test$station_avg_temp_c <- imputed.data[,18]
+dengue_test$station_diur_temp_rng_c <- imputed.data[,19]
+dengue_test$station_max_temp_c <- imputed.data[,20]
+dengue_test$station_min_temp_c <- imputed.data[,21]
+dengue_test$station_precip_mm <- imputed.data[,22]
+
+dim(dengue_test)
+anyNA(dengue_test)
+vis_miss(dengue_test)
+
+```
+
+## Predicting total cases on test data
+```{r predict}
+# predict values for test data
+pred <- predict(model_xgb, dengue_test)
+dengue_test$total_cases <- round(pred, digits = 0)
+
+# Visualizing the time-series total cases on the test data
+plot(dengue_test$total_cases)
+
+# Summary of the predicted total cases
+summary(dengue_test$total_cases)
+
+#Entering the predicted 'total_cases' from the test-set into the submission form
+Submitformat <- getURL("https://s3.amazonaws.com/drivendata/data/44/public/submission_format.csv")
+submitformat <- read.csv(text=Submitformat)
+submitformat$total_cases<- dengue_test$total_cases
+
+# Exporting the output (total cases) to local drive as an Excel file
+write.csv(submitformat, "D://STUDY//MSIS//DM//submit0407620xgb_send.csv", row.names = FALSE)
+```
+## Our Current Ranking in the DengAI Competition at DrivenData.org
+<font size ="4">
+![dengueAR: our rank](D:/current_rank.png)
+
